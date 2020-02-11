@@ -5,6 +5,7 @@ from bs4 import BeautifulSoup
 from bs4.element import Comment
 from nltk.stem.snowball import SnowballStemmer
 from collections import defaultdict
+from simhash import Simhash, SimhashIndex
 #import lxml
 STOPWORDS=set("""
 a
@@ -107,11 +108,12 @@ our
 ours
 """.split("\n"))
 
-urls=defaultdict(set)
+urls=set()
+sims=set()
+objs=[]
 
 def scraper(url, resp):
     links = extract_next_links(url, resp)
-    print(links)
     return [link for link in links if is_valid(link)]
 
 def extract_next_links(url, resp) -> "list()":
@@ -119,12 +121,28 @@ def extract_next_links(url, resp) -> "list()":
     print(defrag)
     if resp.status == 200:
         print("Scanning")
-        if defrag not in urls.keys():
+        if defrag not in urls:
             content = resp.raw_response.text
-            urls[defrag].add(getVisibleText(content))
+            data=getVisibleText(content)
+            simmed=Simhash(data)
+            if simmed.value not in sims:
+                index=SimhashIndex(objs,k=3)
+                if len(index.get_near_dups(simmed))==0:
+                    urls.add(defrag)
+                    sims.add(simmed.value)
+                    objs.append((url,simmed))
+                    print(len(urls),len(sims),len(objs))
+                    try:
+                        file=open("data_dump.txt","a",errors="ignore")
+                        to_write=url+ " \n "+ data+ "\n"+ str(simmed.value) +"\n\n"
+                        file.write(to_write)
+                    except Exception as e:
+                        raise e
+                    finally:
+                        file.close()
+            #urls[defrag].add(getVisibleText(content))
             #print(urls[defrag])
-            print(len(urls))
-            return getAllUrls(url,content)
+        return getAllUrls(url,content)
     else:
         print("Cant scan")
         return []
@@ -140,9 +158,12 @@ def getVisibleText(content):
     soup = BeautifulSoup(content,features="html.parser")
     allTexts = soup.findAll(text=True)
     visibleText = filter(filterVisibleText,allTexts)
-    text=u" ".join(word.strip() for word in visibleText if word not in STOPWORDS)
-    #print(text)
-    return text
+    text=u" ".join(word.strip() for word in visibleText)
+    result=""
+    for x in text.split():
+        result= result+" "+(stem_word(x) if x not in STOPWORDS else "")
+    #print(result)
+    return result
 
 def get_links(content):
     """Not used"""
